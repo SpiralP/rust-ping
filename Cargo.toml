@@ -5,9 +5,8 @@ authors = ["An Long <aisk1988@gmail.com>"]
 license = "MIT"
 description = "ICMP library"
 repository = "https://github.com/aisk/ping"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-socket2 = "0.3"
-thiserror = "1.0"
-rand = "0.7"
+socket2 = { version = "0.4", features = ["all"] }
+thiserror = "1"
