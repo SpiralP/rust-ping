@@ -7,7 +7,7 @@ use std::{
     cell::Cell,
     mem::MaybeUninit,
     net::{IpAddr, SocketAddr},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub const TOKEN_SIZE: usize = 24;
@@ -25,7 +25,7 @@ pub fn ping(
     ident: Option<u16>,
     seq_cnt: Option<u16>,
     payload: Option<&Token>,
-) -> Result<(), Error> {
+) -> Result<Duration, Error> {
     let timeout = match timeout {
         Some(timeout) => Some(timeout),
         None => Some(Duration::from_secs(4)),
@@ -59,23 +59,22 @@ pub fn ping(
     };
 
     socket.set_ttl(ttl.unwrap_or(64))?;
-
     socket.set_write_timeout(timeout)?;
-
-    socket.send_to(&buffer, &dest.into())?;
-
     socket.set_read_timeout(timeout)?;
 
-    fn assume_init(buf: &[MaybeUninit<u8>]) -> &[u8] {
-        unsafe { &*(buf as *const [MaybeUninit<u8>] as *const [u8]) }
-    }
-
-    let mut buffer: [MaybeUninit<u8>; 2048] =
+    let mut recv_buffer: [MaybeUninit<u8>; 2048] =
         unsafe { [MaybeUninit::zeroed().assume_init(); 2048] };
-    socket.recv_from(&mut buffer)?;
+
+    let send_instant = Instant::now();
+    socket.send_to(&buffer, &dest.into())?;
+
+    socket.recv_from(&mut recv_buffer)?;
+    let duration = send_instant.elapsed();
+
+    let recv_buffer = unsafe { &*(&recv_buffer as *const [MaybeUninit<u8>] as *const [u8]) };
 
     let _reply = if dest.is_ipv4() {
-        let ipv4_packet = match IpV4Packet::decode(assume_init(&buffer)) {
+        let ipv4_packet = match IpV4Packet::decode(recv_buffer) {
             Ok(packet) => packet,
             Err(_) => return Err(Error::InternalError),
         };
@@ -84,11 +83,11 @@ pub fn ping(
             Err(_) => return Err(Error::InternalError),
         }
     } else {
-        match EchoReply::decode::<IcmpV6>(assume_init(&buffer)) {
+        match EchoReply::decode::<IcmpV6>(recv_buffer) {
             Ok(reply) => reply,
             Err(_) => return Err(Error::InternalError),
         }
     };
 
-    Ok(())
+    Ok(duration)
 }
